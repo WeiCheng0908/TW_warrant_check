@@ -17,6 +17,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from warrant_finder import data as data_mod
 from warrant_finder import fetcher
+from warrant_finder import quote as quote_mod
 from warrant_finder import search as search_mod
 from warrant_finder import stock_map as stock_map_mod
 from warrant_finder.dates import today_taipei
@@ -153,6 +154,19 @@ def _create_app() -> Flask:
                 "results": results,
             }
         )
+
+    @app.get("/api/warrant/<code>/quote")
+    def api_warrant_quote(code: str):
+        """單檔權證的 5 分鐘延遲報價（TWSE 公開 API）。"""
+        if not code or not code.strip():
+            return jsonify({"error": "missing code"}), 400
+        try:
+            data = quote_mod.fetch_quote(code.strip())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"code": code, "found": False, "error": str(exc)}), 502
+        if not data.get("found"):
+            return jsonify(data), 404
+        return jsonify(data)
 
     @app.errorhandler(404)
     def not_found(_e):

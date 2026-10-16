@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TWSE 權證查詢系統</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>TWSE 權證查詢系統</h1>
+    <p class="subtitle">搜尋台股上市權證（資料來源：TWSE OpenAPI）</p>
+  </header>
+
+  <main class="container">
+    <section class="search-section" aria-label="搜尋">
+      <div class="search-box">
+        <input
+          id="search-input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="輸入股票代號或名稱（例：2330 / 台積電）"
+          aria-label="搜尋股票代號或名稱"
+          aria-autocomplete="list"
+          aria-controls="suggestions"
+          aria-expanded="false"
+        />
+        <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+      </div>
+
+      <fieldset class="filters" aria-label="篩選器">
+        <legend class="filters-legend">篩選</legend>
+        <label class="filter-item">
+          <input type="checkbox" id="filter-new-only" />
+          <span>只看今天新發行</span>
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" id="filter-call" />
+          <span>只看認購</span>
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" id="filter-put" />
+          <span>只看認售</span>
+        </label>
+        <button type="button" id="reset-filters" class="reset-btn">清除篩選</button>
+      </fieldset>
+    </section>
+
+    <section class="results-section" aria-live="polite">
+      <div id="status-bar" class="status-bar" hidden></div>
+
+      <div id="loading" class="loading" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>載入中…</span>
+      </div>
+
+      <div id="empty" class="empty" hidden>
+        <p>👋 請在上方輸入股票代號或名稱開始查詢。</p>
+      </div>
+
+      <div id="no-results" class="empty" hidden>
+        <p>😕 找不到符合條件的權證。</p>
+      </div>
+
+      <div id="error" class="error" hidden role="alert">
+        <p id="error-message"></p>
+      </div>
+
+      <div id="results-block" class="results-block" hidden>
+        <h2 id="results-title" class="results-title"></h2>
+        <p id="results-meta" class="results-meta"></p>
+        <p class="results-hint">💡 點任一列可看 5 分鐘延遲報價（TWSE 公開行情）</p>
+
+        <div class="table-wrapper">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th scope="col" class="expand-col" aria-label="展開"></th>
+                <th scope="col">權證代號</th>
+                <th scope="col">簡稱</th>
+                <th scope="col">認購/認售</th>
+                <th scope="col" class="num">履約價</th>
+                <th scope="col">最後交易日</th>
+                <th scope="col">備註摘要</th>
+              </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 報價 detail panel -->
+      <div id="quote-panel" class="quote-panel" hidden aria-live="polite">
+        <div class="quote-panel-header">
+          <h3 id="quote-title"></h3>
+          <button type="button" id="quote-close" class="quote-close" aria-label="關閉">×</button>
+        </div>
+        <div id="quote-body" class="quote-body"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p id="last-updated" class="last-updated">資料更新時間：載入中…</p>
+    <p class="source">資料來源：<a href="https://openapi.twse.com.tw/" target="_blank" rel="noopener noreferrer">TWSE OpenAPI</a></p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

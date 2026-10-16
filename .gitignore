@@ -1,3 +1,6 @@
 twse-warrant-finder.zip
 twse-warrant-finder/
+warrant_finder/__pycache__/*
 venv/
+data/
+
