@@ -37,13 +37,27 @@ from .parser import iter_loads
 
 
 # --------------------------------------------------------------------------- #
-# Listed (TWSE) — JSON
+# Listed (TWSE) — JSON or CSV
 # --------------------------------------------------------------------------- #
 def _read(path: str) -> List[dict]:
+    """讀取上市 warrant 母檔，自動偵測 JSON 或 CSV 格式。
+
+    TWSE 在 2026 年中把 ``t187ap37_L`` 從 JSON 改回 CSV（跟 TPEX 一致），
+    所以這裡兩個格式都要吃：JSON 用 ``iter_loads``，CSV 用 ``csv.DictReader``。
+    兩種格式的欄位名完全相同（中文），下游 ``normalize_warrant`` 不需改。
+    """
     if not os.path.exists(path):
         return []
     with open(path, "rb") as f:
-        return list(iter_loads(f.read()))
+        raw = f.read()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]  # strip UTF-8 BOM
+    head = raw.lstrip()
+    if head.startswith(b"["):
+        # 舊版 JSON
+        return list(iter_loads(raw))
+    # 新版 CSV
+    return list(csv.DictReader(io.StringIO(raw.decode("utf-8", errors="replace"))))
 
 
 def _code(row: dict) -> str:

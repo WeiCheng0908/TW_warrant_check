@@ -236,32 +236,51 @@ def top_stocks_from_files(
 
 
 def _load_listed_trade(path: str) -> List[dict]:
-    """``t187ap42_L`` 是 JSON 陣列，欄位 ``成交金額`` / ``成交數量`` / ``權證代號``。"""
+    """``t187ap42_L`` 是 JSON 陣列，欄位 ``成交金額`` / ``成交數量`` / ``權證代號``。
+
+    2026 年中 TWSE 也曾把某些端點改成 CSV；為了 safe，這裡兩種都吃。
+    """
     import json
     try:
         with open(path, "rb") as f:
             raw = f.read()
     except FileNotFoundError:
         return []
-    try:
-        # 上市母檔可能有 \r\n 的容錯，跟 data._read 用同一路徑
-        from . import parser
-        rows = list(parser.iter_loads(raw))
-    except Exception:
-        rows = json.loads(raw)
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+
+    head = raw.lstrip()
     out = []
-    for r in rows:
-        code = (
-            r.get("權證代號") or r.get("code") or ""
-        )
-        if isinstance(code, (int, float)):
-            code = str(int(code))
-        code = str(code).strip()
-        if not code:
-            continue
-        out.append({
-            "code": code,
-            "amount": _to_float(r.get("成交金額")),
-            "volume": _to_float(r.get("成交數量")),
-        })
+    if head.startswith(b"["):
+        # JSON
+        try:
+            from . import parser
+            rows = list(parser.iter_loads(raw))
+        except Exception:
+            rows = json.loads(raw)
+        for r in rows:
+            code = r.get("權證代號") or r.get("code") or ""
+            if isinstance(code, (int, float)):
+                code = str(int(code))
+            code = str(code).strip()
+            if not code:
+                continue
+            out.append({
+                "code": code,
+                "amount": _to_float(r.get("成交金額")),
+                "volume": _to_float(r.get("成交數量")),
+            })
+    else:
+        # CSV
+        for r in _read_csv(path):
+            code = (r.get("權證代號") or "").strip()
+            if isinstance(code, (int, float)):
+                code = str(int(code))
+            if not code:
+                continue
+            out.append({
+                "code": code,
+                "amount": _to_float(r.get("成交金額")),
+                "volume": _to_float(r.get("成交數量")),
+            })
     return out

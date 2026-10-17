@@ -264,6 +264,70 @@ def test_top_traded_includes_proxy_note(client):
 
 
 # --------------------------------------------------------------------------- #
+# Regression：TWSE 在 2026 年中把 t187ap37_L 從 JSON 改 CSV，
+# data._read 必須能兩個格式都吃。
+# --------------------------------------------------------------------------- #
+class TestListedWarrantFormatAutoDetect:
+    """TWSE 2026 年中把 ``t187ap37_L`` 從 JSON 改回 CSV；data._read 要能兩種都吃。"""
+
+    def test_json_still_works(self, tmp_path):
+        """舊 JSON 必須繼續能被讀取。"""
+        from warrant_finder import data
+        import json
+        f = tmp_path / "warrants.json"
+        f.write_bytes(json.dumps([
+            {"出表日期": "1151016", "權證代號": "030001", "權證簡稱": "友達台新6A購01",
+             "權證類型": "認購", "類別": "一般型", "標的證券/指數": "友達",
+             "最新履約價格(元)/履約指數": "53.0000",
+             "履約開始日": "1151005", "最後交易日": "1160930", "備註": ""},
+        ], ensure_ascii=False).encode("utf-8"))
+        rows = data._read(str(f))
+        assert len(rows) == 1
+        assert rows[0]["權證代號"] == "030001"
+        assert rows[0]["標的證券/指數"] == "友達"
+
+    def test_csv_still_works(self, tmp_path):
+        """新 CSV（TWSE 改版後）必須能讀。"""
+        from warrant_finder import data
+        f = tmp_path / "warrants_L.csv"
+        f.write_bytes((
+            '﻿出表日期,權證代號,權證簡稱,權證類型,類別,標的證券/指數,'
+            '最新履約價格(元)/履約指數,履約開始日,最後交易日,備註\n'
+            '"1151016","030001","友達台新6A購01","認購","一般型","友達",'
+            '"53.0000","1151005","1160930",""\n'
+        ).encode("utf-8"))
+        rows = data._read(str(f))
+        assert len(rows) == 1
+        assert rows[0]["權證代號"] == "030001"
+        assert rows[0]["標的證券/指數"] == "友達"
+
+    def test_csv_with_embedded_crlf_in_notes(self, tmp_path):
+        """CSV 不會被「\\r\\n 在 備註 裡」炸掉（這就是 TWSE 改 CSV 的主因）。"""
+        from warrant_finder import data
+        f = tmp_path / "warrants_L.csv"
+        f.write_bytes((
+            '﻿權證代號,權證簡稱,備註\n'
+            '"030001","友達","line1\r\nline2"\n'
+        ).encode("utf-8"))
+        rows = data._read(str(f))
+        assert len(rows) == 1
+        assert "line1" in rows[0]["備註"]
+        assert "line2" in rows[0]["備註"]
+
+    def test_real_warrants_file_loads(self):
+        """實際下載的 warrants.json（或更新後的 CSV）必須能 load_normalized 成功。"""
+        from warrant_finder import data
+        p = DATA / "warrants.json"
+        if not p.exists():
+            pytest.skip("warrants.json 不存在")
+        warrs = data.load_normalized(str(p))
+        assert len(warrs) > 1000
+        # 第一筆要有基本欄位
+        assert warrs[0].get("code")
+        assert warrs[0].get("underlying")
+
+
+# --------------------------------------------------------------------------- #
 # market_activity 純函式測試（不發 API）
 # --------------------------------------------------------------------------- #
 class TestMarketActivityAggregation:
