@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IV 篩選器 — TWSE 權證</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>📊 IV 篩選器</h1>
+    <p class="subtitle">
+      為特定標的（如 6187 萬潤）計算所有權證的 Black-Scholes implied volatility。
+      <a href="/" style="margin-left: 1rem;">← 回基本查詢</a>
+    </p>
+  </header>
+
+  <main class="container">
+    <section class="search-section" aria-label="設定">
+      <div class="screener-controls">
+        <div class="search-box">
+          <input
+            id="stock-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="股票代號或名稱（例：6187 / 萬潤）"
+            aria-label="輸入股票代號"
+          />
+        </div>
+        <div class="field">
+          <label for="market-select">市場</label>
+          <select id="market-select">
+            <option value="all">全部</option>
+            <option value="otc" selected>只看上櫃</option>
+            <option value="listed">只看上市</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="type-select">類型</label>
+          <select id="type-select">
+            <option value="認購" selected>認購</option>
+            <option value="認售">認售</option>
+            <option value="">全部</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="min-days">最短剩餘天</label>
+          <input id="min-days" type="number" min="0" max="999" value="0" />
+        </div>
+        <button type="button" id="load-btn" class="compute-all-btn">載入權證清單</button>
+        <button type="button" id="compute-all-btn" class="compute-all-btn" disabled>
+          ▶ 批次計算 IV
+        </button>
+      </div>
+    </section>
+
+    <section class="results-section" aria-live="polite">
+      <div id="status-bar" class="status-bar" hidden></div>
+
+      <div id="progress" class="screener-progress" hidden>
+        <span id="progress-text">準備中…</span>
+        <div class="progress-bar"><div id="progress-fill" style="width: 0%"></div></div>
+      </div>
+
+      <div id="empty" class="empty">
+        <p>👋 請在上方輸入股票代號（例如 <code>6187</code>），按「載入權證清單」開始。</p>
+      </div>
+
+      <div id="no-results" class="empty" hidden>
+        <p>😕 沒有符合條件的權證。</p>
+      </div>
+
+      <div id="error" class="error" hidden role="alert">
+        <p id="error-message"></p>
+      </div>
+
+      <div id="results-block" class="results-block" hidden>
+        <h2 id="results-title" class="results-title"></h2>
+        <p id="results-meta" class="results-meta"></p>
+        <p class="results-hint">
+          💡 IV 由 <code>Black-Scholes-Merton</code> 反解（r=2%）；點欄位標題可排序。
+        </p>
+
+        <div class="table-wrapper">
+          <table class="results-table">
+            <thead>
+              <tr id="results-head">
+                <th data-sort="code">代號</th>
+                <th data-sort="name">簡稱</th>
+                <th data-sort="type">類型</th>
+                <th data-sort="market">市場</th>
+                <th data-sort="strike_price" class="num">履約價</th>
+                <th data-sort="days_to_expiry" class="num">剩餘天</th>
+                <th data-sort="exercise_ratio" class="num">配發</th>
+                <th data-sort="iv" class="num">IV %</th>
+                <th data-sort="delta" class="num">Delta</th>
+                <th data-sort="moneyness" class="num">S/K</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p class="last-updated">
+      預設 r=2%（無風險利率）；r 與 exercise_ratio 假設如下：詳見 deliverable.md §2.3。
+    </p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='screener.js') }}" defer></script>
+</body>
+</html>

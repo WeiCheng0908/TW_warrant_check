@@ -177,3 +177,20 @@ def test_iv_invalid_warrant_code_returns_400(client):
 def test_iv_warrant_not_in_cache_returns_404(client):
     resp = client.get("/api/warrant/00NOTREAL/iv")
     assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# /screener — frontend HTML page
+# --------------------------------------------------------------------------- #
+def test_screener_returns_200_and_html(client):
+    resp = client.get("/screener")
+    assert resp.status_code == 200
+    assert b"IV" in resp.data or b"html" in resp.data.lower()
+    # 內容應該有 screener.js 引用
+    assert b"screener.js" in resp.data or b"<script" in resp.data
+
+
+def test_index_has_screener_link(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert b"/screener" in resp.data

@@ -144,6 +144,18 @@ def _create_app() -> Flask:
             {"Content-Type": "text/html; charset=utf-8"},
         )
 
+    @app.get("/screener")
+    def screener():
+        scr = os.path.join(TEMPLATES_DIR, "screener.html")
+        if os.path.exists(scr):
+            return render_template("screener.html")
+        return (
+            "<h1>IV Screener</h1>"
+            "<p>templates/screener.html 尚未部署。請用 /api/warrants/screen 直接打 API。</p>",
+            200,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
     @app.get("/api/health")
     def health():
         with state.lock:
@@ -488,7 +500,7 @@ def main() -> None:
     t = threading.Thread(target=_background_init, name="init-fetcher", daemon=True)
     t.start()
     app = _create_app()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "15000")))
 
 
 if __name__ == "__main__":

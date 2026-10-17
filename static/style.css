@@ -543,3 +543,91 @@ a:hover { text-decoration: underline; }
 .quote-five-row:last-child { border-bottom: none; }
 .five-label { color: var(--text-muted); font-size: 0.8rem; width: 1.2em; }
 .five-price { font-weight: 600; }
+
+/* ============================================================
+   IV Screener page (/screener)
+   ============================================================ */
+.screener-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+.screener-controls .search-box { flex: 1 1 16rem; }
+.screener-controls .field { display: flex; flex-direction: column; gap: 0.25rem; }
+.screener-controls .field label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.screener-controls select,
+.screener-controls input[type="number"] {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  background: white;
+}
+.screener-progress {
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem 1rem;
+  background: #eef2ff;
+  border-left: 4px solid #4f46e5;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.screener-progress .progress-bar {
+  height: 6px;
+  background: #c7d2fe;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+.screener-progress .progress-bar > div {
+  height: 100%;
+  background: #4f46e5;
+  transition: width 0.2s ease;
+}
+.iv-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.iv-cell.iv-pending { color: var(--text-muted); font-weight: 400; }
+.iv-cell.iv-low { color: #15803d; }     /* 低於 50% → 綠 */
+.iv-cell.iv-mid { color: #b45309; }     /* 50-100% → 橘 */
+.iv-cell.iv-high { color: #b91c1c; }    /* >100% 異常高 → 紅 */
+
+.greek-cell {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.moneyness-itm { color: #15803d; font-weight: 600; }
+.moneyness-otm { color: var(--text-muted); }
+
+.iv-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--border);
+  color: var(--text);
+}
+.iv-badge.green { background: #dcfce7; color: #166534; }
+.iv-badge.orange { background: #ffedd5; color: #9a3412; }
+.iv-badge.red { background: #fee2e2; color: #991b1b; }
+
+.compute-all-btn {
+  background: #4f46e5;
+  color: white;
+  border: none;
+  padding: 0.55rem 1rem;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.compute-all-btn:hover:not(:disabled) { background: #4338ca; }
+.compute-all-btn:disabled { opacity: 0.5; cursor: not-allowed; }
