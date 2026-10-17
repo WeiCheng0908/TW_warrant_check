@@ -25,23 +25,63 @@ DEFAULT_UA = (
 
 
 def _normalize_code(code: str) -> str:
-    """``03002T`` → ``030002``。TWSE 報價 API 用 6 碼純數字。
+    """把代號轉成 MIS API 認得的格式。
 
-    權證母檔 (``t187ap37_L``) 有時帶 ``T`` 後綴（例如增額發行），
-    報價 API 只要前 6 碼。
+    規則：
+    - 股票 4 碼（如 ``6187``、``2330``）→ 保持 4 碼不 padding。
+    - 權證若帶英文字母後綴（如 ``03002T``）→ 去字母再 ``zfill(6)`` 得 6 碼。
+    - 純數字權證（如 ``712218``、``088272``）→ 保持原樣（已是 6 碼）。
     """
-    digits = re.sub(r"\D", "", code or "")
+    s = (code or "").strip()
+    if not s:
+        return ""
+    digits = re.sub(r"\D", "", s)
     if not digits:
         return ""
-    # 有些權證是 6 碼（如 030002）、有些是 5 碼（如 03002），
-    # TWSE API 兩種都吃，6 碼為主。
+    has_letter = any(c.isalpha() for c in s)
+    # 股票：4 碼以內、無英文字母，直接回傳。
+    if len(digits) <= 4 and not has_letter:
+        return digits
+    # 權證：pad 到 6 碼。
     return digits.zfill(6)[:6]
 
 
+def _is_otc_code(code: str) -> bool:
+    """Heuristic：判斷一個代號是否屬於「上櫃」。
+
+    - TPEX 認購權證：6 碼純數字且以 7 開頭（700000–739999）。
+    - TPEX 認售權證：5 碼數字 + 英文字母後綴 (P/U/T)，前綴以 7 開頭。
+
+    注意：上市牛熊證也以 7 開頭（70000C–73999C），不過那仍走 TPEX 報價。
+
+    TWSE 上市權證的「增額發行」代號（5 碼數字 + T 後綴，如 ``03002T``）以
+    0 或 6 開頭，跟 TPEX 認售的 7 字頭前綴可區分。
+    """
+    if not code:
+        return False
+    # TPEX 認購：6 碼純數字且以 7 開頭
+    if len(code) == 6 and code.isdigit() and code.startswith("7"):
+        return True
+    # TPEX 認售/牛熊：7 字頭 + 5 碼數字 + 字母結尾
+    if len(code) == 6 and code[-1].isalpha() and code.startswith("7"):
+        digits = re.sub(r"\D", "", code)
+        if len(digits) == 5:
+            return True
+    return False
+
+
 def _split_prices(raw: str) -> List[Optional[float]]:
-    """``"1.6000_0.7300_"`` → ``[1.6, 0.73]``。空字串或 ``"-"`` 變 ``None``。"""
+    """``"1.6000_0.7300_"`` → ``[1.6, 0.73]``。空字串或 ``"-"`` 變 ``None``。
+
+    Trailing 的純空 piece 若前一個是有意義的數字則丟掉；
+    若前一個是空字串或 ``-`` 則保留為 ``None``（代表「缺的檔位」）。
+    """
+    parts = (raw or "").split("_")
+    # Drop trailing empties only when preceded by a value-like piece.
+    while len(parts) > 1 and parts[-1] == "" and parts[-2] not in ("", "-"):
+        parts.pop()
     out: List[Optional[float]] = []
-    for piece in (raw or "").split("_"):
+    for piece in parts:
         piece = piece.strip()
         if not piece or piece == "-":
             out.append(None)
@@ -68,8 +108,19 @@ def fetch_quote(
     timeout: int = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     user_agent: str = DEFAULT_UA,
+    exchange: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """抓單檔權證的 5 分鐘延遲報價。
+    """抓單檔權證或股票的 5 分鐘延遲報價。
+
+    Parameters
+    ----------
+    code : str
+        權證代號（如 ``712218``）或股票代號（如 ``2330`` / ``6187``）
+    exchange : str, optional
+        ``"tse"``（上市）或 ``"otc"``（上櫃）。未指定時根據代號格式啟發式判斷：
+        - 7 字頭 warrant → ``otc``
+        - 其他情況 → ``tse``
+        股票若不確定，呼叫端應該 explicit 指定（例如已知 6187 萬潤是上櫃）。
 
     回傳 dict；找不到 / 失敗時回傳 ``{"code": ..., "found": False, "error": "..."}``。
     """
@@ -81,8 +132,16 @@ def fetch_quote(
             "error": f"invalid code: {code!r}",
         }
 
+    if exchange is None:
+        exchange = "otc" if _is_otc_code(code) or _is_otc_code(code_norm) else "tse"
+    else:
+        exchange = exchange.lower()
+        if exchange not in ("tse", "otc"):
+            raise ValueError(f"exchange must be 'tse' or 'otc', got {exchange!r}")
+
     url = QUOTE_URL
-    params = {"ex_ch": f"tse_{code_norm}.tw"}
+    params = {"ex_ch": f"{exchange}_{code_norm}.tw"}
+    # 註：上市股票/權證 → tse_，上櫃 → otc_
     headers = {
         "User-Agent": user_agent,
         "Accept": "application/json",
@@ -143,8 +202,10 @@ def _parse_quote_response(payload: Any, *, code: str) -> Dict[str, Any]:
     # 成交量/金額：API 的 v 字段是「張」，收盤後是 0 或 "-"
     volume_lots = _to_float(row.get("v"))
     cum_volume = _to_float(row.get("tv"))
-    if cum_volume is None:
-        cum_volume = volume_lots  # fallback
+    # Fallback only when tv was missing AND v has meaningful (non-zero) value,
+    # so 收盤後 (v="0", tv="-") 不會把 cum_volume 從 None 蓋成 0.0。
+    if cum_volume is None and volume_lots:
+        cum_volume = volume_lots
 
     # 累計成交金額：API 沒直接給，用 cum_volume(張) × 1000(股) × last 推算
     # 收盤後 last 為 None，amount 也為 None
