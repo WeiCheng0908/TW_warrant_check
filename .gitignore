@@ -1,6 +1,16 @@
+# 暫存 / commit-ready
 twse-warrant-finder.zip
 twse-warrant-finder/
-warrant_finder/__pycache__/*
-venv/
-data/
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Venv
+venv/
+.venv/
+
+# 資料 cache（主檔下載後落地這，不該 commit）
+data/
