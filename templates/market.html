@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>市場熱度排行 — TWSE 權證</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>🔥 市場熱度排行</h1>
+    <p class="subtitle">
+      以當日權證成交金額加總至標的，找出市場預期波動最大的熱門標的。
+      <a href="/" style="margin-left: 0.5rem;">← 回基本查詢</a>
+      ·
+      <a href="/screener" style="margin-left: 0.5rem;">📊 IV 篩選器</a>
+    </p>
+  </header>
+
+  <main class="container">
+    <section class="search-section" aria-label="設定">
+      <div class="screener-controls">
+        <div class="field">
+          <label for="market-select">市場</label>
+          <select id="market-select">
+            <option value="all" selected>全部</option>
+            <option value="otc">只看上櫃</option>
+            <option value="listed">只看上市</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="limit-input">Top N</label>
+          <input id="limit-input" type="number" min="1" max="200" value="20" />
+        </div>
+        <div class="field">
+          <label for="min-amount-input">最小成交額 (元)</label>
+          <input id="min-amount-input" type="number" min="0" step="10000" value="0" />
+        </div>
+        <button type="button" id="load-btn" class="compute-all-btn">載入排行</button>
+      </div>
+      <p id="proxy-note" class="results-hint" style="margin-top: 0.5rem;"></p>
+    </section>
+
+    <section class="results-section" aria-live="polite">
+      <div id="status-bar" class="status-bar" hidden></div>
+
+      <div id="loading" class="loading" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>載入中…</span>
+      </div>
+
+      <div id="empty" class="empty">
+        <p>👋 按「載入排行」開始。</p>
+      </div>
+
+      <div id="error" class="error" hidden role="alert">
+        <p id="error-message"></p>
+      </div>
+
+      <div id="results-block" class="results-block" hidden>
+        <h2 id="results-title" class="results-title"></h2>
+        <p id="results-meta" class="results-meta"></p>
+
+        <div class="table-wrapper">
+          <table class="results-table">
+            <thead>
+              <tr id="results-head">
+                <th data-sort="rank" class="num">#</th>
+                <th data-sort="stock_name">標的</th>
+                <th data-sort="stock_code">代號</th>
+                <th data-sort="market">市場</th>
+                <th data-sort="total_amount" class="num">金額（元）</th>
+                <th data-sort="share" class="num">占比</th>
+                <th data-sort="total_volume" class="num">成交量（張）</th>
+                <th data-sort="warrant_count" class="num">權證數</th>
+                <th>動作</th>
+              </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p class="last-updated">
+      資料來源：TWSE / TPEX 每日權證成交檔（<code>t187ap42_L</code>、<code>t187ap42_O.csv</code>）。
+      預設 cache 12h，到期會自動重抓。
+    </p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='market.js') }}" defer></script>
+</body>
+</html>

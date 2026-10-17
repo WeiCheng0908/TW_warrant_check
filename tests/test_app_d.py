@@ -194,3 +194,153 @@ def test_index_has_screener_link(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"/screener" in resp.data
+
+
+# --------------------------------------------------------------------------- #
+# /market — frontend HTML page
+# --------------------------------------------------------------------------- #
+def test_market_returns_200_and_html(client):
+    resp = client.get("/market")
+    assert resp.status_code == 200
+    assert b"market.js" in resp.data or b"<script" in resp.data
+
+
+# --------------------------------------------------------------------------- #
+# /api/market/top-traded — 市場熱度排行
+# --------------------------------------------------------------------------- #
+def _have_otc_data() -> bool:
+    return (
+        (DATA / "warrants_otc.csv").exists()
+        and (DATA / "warrants_trade_otc.csv").exists()
+        and (DATA / "stocks_otc.csv").exists()
+    )
+
+
+def test_top_traded_otc_returns_sorted(client):
+    if not _have_otc_data():
+        pytest.skip("OTC warrants/trade/stocks 缺 — 需要先跑 demo 抓檔")
+    resp = client.get("/api/market/top-traded?limit=10&market=otc")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["count"] >= 5, f"got {body['count']}, 應 >= 5"
+    rows = body["results"]
+    # total_amount desc
+    amounts = [r["total_amount"] for r in rows]
+    assert amounts == sorted(amounts, reverse=True)
+    # 萬潤（6187）在市場熱度榜是有排名的（Demo case）
+    codes = [r.get("stock_code") for r in rows]
+    if 6187 in [int(c) if c and c.isdigit() else None for c in codes]:
+        # 若上榜，必須有正確 stock_code 解析
+        wanrun = next((r for r in rows if r.get("stock_code") == "6187"), None)
+        assert wanrun is not None
+        assert wanrun["stock_name"] == "萬潤"
+        assert wanrun["market"] == "otc"
+        assert wanrun["total_amount"] > 0
+
+
+def test_top_traded_min_amount_filter(client):
+    if not _have_otc_data():
+        pytest.skip("OTC data 缺")
+    resp = client.get("/api/market/top-traded?limit=100&market=otc&min_amount=100000000")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    for r in body["results"]:
+        assert r["total_amount"] >= 100000000
+
+
+def test_top_traded_invalid_limit_returns_400(client):
+    resp = client.get("/api/market/top-traded?limit=abc")
+    assert resp.status_code == 400
+
+
+def test_top_traded_includes_proxy_note(client):
+    if not _have_otc_data():
+        pytest.skip("OTC data 缺")
+    resp = client.get("/api/market/top-traded?limit=3&market=otc")
+    body = resp.get_json()
+    assert "proxy_note" in body
+    assert "權證" in body["proxy_note"]
+    assert "波動" in body["proxy_note"]
+
+
+# --------------------------------------------------------------------------- #
+# market_activity 純函式測試（不發 API）
+# --------------------------------------------------------------------------- #
+class TestMarketActivityAggregation:
+    """確保 aggregate_warrant_activity 排序 / 加總 / 名稱 mapping 邏輯正確。"""
+
+    def _setup(self):
+        """兩個權證 + 一個 stock，三條 trade rows。"""
+        warrs = [
+            {"code": "700001", "underlying": "ABC", "market": "otc"},
+            {"code": "700002", "underlying": "ABC", "market": "otc"},
+            {"code": "700003", "underlying": "XYZ", "market": "otc"},
+        ]
+        trades = [
+            {"code": "700001", "amount": 100.0, "volume": 10.0},
+            {"code": "700002", "amount": 200.0, "volume": 20.0},
+            {"code": "700003", "amount": 50.0, "volume": 5.0},
+        ]
+        return warrs, trades
+
+    def test_aggregation_basic_sum(self):
+        from warrant_finder import market_activity
+        warrs, trades = self._setup()
+        out = market_activity.aggregate_warrant_activity(warrs, trades)
+        out_dict = {r["stock_name"]: r for r in out}
+        assert out_dict["ABC"]["total_amount"] == 300.0
+        assert out_dict["ABC"]["total_volume"] == 30.0
+        assert out_dict["ABC"]["warrant_count"] == 2
+        assert out_dict["XYZ"]["total_amount"] == 50.0
+
+    def test_aggregation_sort_desc(self):
+        from warrant_finder import market_activity
+        warrs, trades = self._setup()
+        out = market_activity.aggregate_warrant_activity(warrs, trades)
+        amounts = [r["total_amount"] for r in out]
+        assert amounts == sorted(amounts, reverse=True)
+
+    def test_aggregation_skips_unknown_codes(self):
+        """不在 master 的 warrant code 應該跳過，不會汙染 group。"""
+        from warrant_finder import market_activity
+        warrs = [{"code": "700001", "underlying": "ABC", "market": "otc"}]
+        trades = [
+            {"code": "700001", "amount": 100.0, "volume": 10.0},
+            {"code": "999999", "amount": 9999.0, "volume": 999.0},  # 不在 master
+        ]
+        out = market_activity.aggregate_warrant_activity(warrs, trades)
+        assert len(out) == 1
+        assert out[0]["stock_name"] == "ABC"
+        assert out[0]["total_amount"] == 100.0
+
+    def test_top_n_respects_limit(self):
+        from warrant_finder import market_activity
+        warrs = [
+            {"code": f"7000{i:02d}", "underlying": f"S{i}", "market": "otc"}
+            for i in range(5)
+        ]
+        trades = [
+            {"code": f"7000{i:02d}", "amount": float(100 - i), "volume": float(i + 1)}
+            for i in range(5)
+        ]
+        out = market_activity.top_stocks_by_warrant_trading(warrs, trades, limit=3)
+        assert len(out) == 3
+        assert out[0]["stock_name"] == "S0"
+        assert out[2]["total_amount"] == 98.0
+
+    def test_min_amount_filter(self):
+        from warrant_finder import market_activity
+        warrs = [
+            {"code": "7000A", "underlying": "Big", "market": "otc"},
+            {"code": "7000B", "underlying": "Small", "market": "otc"},
+        ]
+        trades = [
+            {"code": "7000A", "amount": 1000.0, "volume": 10.0},
+            {"code": "7000B", "amount": 5.0, "volume": 1.0},
+        ]
+        out = market_activity.top_stocks_by_warrant_trading(
+            warrs, trades, limit=10, min_total_amount=100
+        )
+        names = {r["stock_name"] for r in out}
+        assert "Big" in names
+        assert "Small" not in names

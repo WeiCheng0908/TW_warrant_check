@@ -17,6 +17,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from warrant_finder import data as data_mod
 from warrant_finder import fetcher
+from warrant_finder import market_activity
 from warrant_finder import quote as quote_mod
 from warrant_finder import search as search_mod
 from warrant_finder import stock_map as stock_map_mod
@@ -152,6 +153,18 @@ def _create_app() -> Flask:
         return (
             "<h1>IV Screener</h1>"
             "<p>templates/screener.html 尚未部署。請用 /api/warrants/screen 直接打 API。</p>",
+            200,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    @app.get("/market")
+    def market():
+        scr = os.path.join(TEMPLATES_DIR, "market.html")
+        if os.path.exists(scr):
+            return render_template("market.html")
+        return (
+            "<h1>Market Activity</h1>"
+            "<p>templates/market.html 尚未部署。請用 /api/market/top-traded 直接打 API。</p>",
             200,
             {"Content-Type": "text/html; charset=utf-8"},
         )
@@ -307,6 +320,78 @@ def _create_app() -> Flask:
                 },
             }
         )
+
+    @app.get("/api/market/top-traded")
+    def api_market_top_traded():
+        """以權證每日成交金額加總排序：找出市場上權證熱絡的標的股。
+
+        目前用 ``t187ap42_L`` 與 ``t187ap42_O.csv`` 做權證層級加總；
+        之後會串接 stock 層級的 ``tpex_mainboard_daily_close_quotes``
+        與 TWSE 對應端點做 cross-check。
+
+        Query params:
+          - limit       int (預設 20, max 200)
+          - market      listed / otc / all（預設 all — 上市+上櫃合算再排）
+          - min_amount  float（元），低於此金額的標的會被過濾掉（noise 過濾）
+        """
+        try:
+            limit = max(1, min(int(request.args.get("limit", "20")), 200))
+        except ValueError:
+            return jsonify({"error": "limit must be int"}), 400
+        market = (request.args.get("market") or "all").lower()
+        try:
+            min_amount = float(request.args.get("min_amount", "0"))
+        except ValueError:
+            return jsonify({"error": "min_amount must be float"}), 400
+
+        # 上市 + 上櫃兩批分別算 (各自 master 帶 market 欄位)
+        result_rows: list = []
+        for master_path, trade_path, stocks_path, scope in (
+            (WARRANT_PATH, WARRANT_TRADE_PATH, None, "listed"),
+            (WARRANT_OTC_PATH, WARRANT_OTC_TRADE_PATH, STOCK_OTC_PATH, "otc"),
+        ):
+            if not os.path.exists(trade_path) or not os.path.exists(master_path):
+                continue
+            try:
+                _, top = market_activity.top_stocks_from_files(
+                    master_path, trade_path,
+                    stocks_otc_path=stocks_path,
+                    market=scope,
+                    limit=limit,
+                    min_total_amount=0,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # 容錯：單批失敗不影響其他批
+                continue
+            result_rows.extend(top)
+
+        if market in ("listed", "otc"):
+            result_rows = [r for r in result_rows if r.get("market") == market]
+
+        if min_amount > 0:
+            result_rows = [r for r in result_rows if r["total_amount"] >= min_amount]
+
+        result_rows.sort(key=lambda r: r["total_amount"], reverse=True)
+        truncated = result_rows[limit:]
+        result_rows = result_rows[:limit]
+
+        # 計算「總交易額中占比」（讓使用者看出相對熱度）
+        grand_total = sum(r["total_amount"] for r in result_rows)
+        for r in result_rows:
+            r["share"] = (r["total_amount"] / grand_total) if grand_total else 0
+            r["total_amount"] = round(r["total_amount"], 0)
+            r["total_volume"] = round(r["total_volume"], 0)
+
+        return jsonify({
+            "count": len(result_rows),
+            "truncated_count": len(truncated),
+            "results": result_rows,
+            "filters": {"limit": limit, "market": market, "min_amount": min_amount},
+            "proxy_note": (
+                "資料源：以當日權證成交金額 (新台幣元) 為代理加總至標的股。"
+                "代表「市場對該檔的波動預期強」，但不等於股票本身的當日交易額。"
+            ),
+        })
 
     @app.get("/api/warrant/<code>/quote")
     def api_warrant_quote(code: str):
