@@ -7,6 +7,8 @@
 - ``data``     : 合併母檔與成交檔
 - ``search``   : 查詢邏輯
 - ``dates``    : ROC ↔ ISO 日期轉換
+- ``quote``    : TWSE 5 分鐘延遲報價
+- ``iv``       : Black-Scholes-Merton 價格 + IV 反解 + Greeks
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
