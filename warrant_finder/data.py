@@ -19,16 +19,26 @@ TWSE 真實資料的欄位名稱 (2026/10 取樣)：
 * t187ap42_L (每日成交)：
     - ``出表日期``、``交易日期``、``權證代號``、``權證名稱``
     - ``成交金額``、``成交張數``
+
+上櫃 (TPEX, mopsfin.twse.com.tw CSV)：
+* ``t187ap37_O.csv``  同母檔欄位（CSV，含 BOM \\ufeff）
+* ``t187ap42_O.csv``  同交易檔
+* ``t187ap03_O.csv``  公司基本資料
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import os
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from .parser import iter_loads
 
 
+# --------------------------------------------------------------------------- #
+# Listed (TWSE) — JSON
+# --------------------------------------------------------------------------- #
 def _read(path: str) -> List[dict]:
     if not os.path.exists(path):
         return []
@@ -143,3 +153,141 @@ def load_normalized(base_path: str, trade_path: Optional[str] = None) -> List[di
             continue
         out.append(normalize_warrant(row, trade_by_code.get(code)))
     return out
+
+
+# --------------------------------------------------------------------------- #
+# OTC (TPEX) — CSV
+# --------------------------------------------------------------------------- #
+def _strip_bom(b: bytes) -> bytes:
+    return b[3:] if b.startswith(b"\xef\xbb\xbf") else b
+
+
+def _read_csv(path: str) -> List[dict]:
+    if not os.path.exists(path):
+        return []
+    with open(path, "rb") as f:
+        raw = _strip_bom(f.read())
+    return list(csv.DictReader(io.StringIO(raw.decode("utf-8"))))
+
+
+def normalize_otc_warrant(row: dict) -> dict:
+    """把上櫃權證 CSV 的一列轉成跟 ``normalize_warrant`` 相容的形狀。
+
+    已知 CSV 欄位（2026/10 取樣）：
+    ``出表日期, 權證代號, 權證簡稱, 權證類型, 類別, 流動量提供者報價方式,
+    履約開始日, 最後交易日, 履約截止日, 發行單位數量(仟單位),
+    結算方式(詳附註編號說明), 標的證券/指數, 最新標的履約配發數量(每仟單位權證),
+    原始履約價格(元)/履約指數, 原始上限價格(元)/上限指數,
+    原始下限價格(元)/下限指數, 最新履約價格(元)/履約指數,
+    最新上限價格(元)/上限指數, 最新下限價格(元)/上限指數, 備註``
+
+    上櫃 CSV **沒有** ``標的證券代號`` 欄位（用名稱比對）。
+    """
+    notes = (row.get("備註") or "").strip()
+    strike = _to_number(row.get("最新履約價格(元)/履約指數"))
+    issue_size = _to_number(row.get("發行單位數量(仟單位)"))
+    # 「最新標的履約配發數量」是「每仟單位權證」可配發的股數，例如 3.00 → 每張 0.003 股。
+    exercise_ratio = _to_number(row.get("最新標的履約配發數量(每仟單位權證)"))
+
+    return {
+        "code": (row.get("權證代號") or "").strip(),
+        "name": (row.get("權證簡稱") or "").strip(),
+        "type": (row.get("權證類型") or "").strip(),
+        "category": (row.get("類別") or "").strip(),
+        "underlying": (row.get("標的證券/指數") or "").strip(),
+        "underlying_code": "",  # 上櫃 CSV 沒這欄位
+        "start_date": (row.get("履約開始日") or "").strip(),
+        "end_date": (row.get("最後交易日") or "").strip(),
+        "expire_date": (row.get("履約截止日") or "").strip(),
+        "strike_price": strike,
+        "exercise_ratio_per_mille": exercise_ratio,  # 每仟張配發股數
+        "issue_size": issue_size,
+        "issuer": "",  # 上櫃 CSV 沒這欄位
+        "notes": notes,
+        "market": "otc",
+    }
+
+
+def normalize_otc_stock(row: dict) -> Optional[dict]:
+    """上櫃股票 CSV (``t187ap03_O.csv``) 一列的標準化。
+
+    回傳 ``None`` 表示該列沒代號或名稱。
+    """
+    code = (row.get("公司代號") or "").strip()
+    name = (row.get("公司簡稱") or "").strip()
+    if not code or not name:
+        return None
+    return {
+        "code": code,
+        "name": name,
+        "full_name": (row.get("公司名稱") or "").strip(),
+        "market": "otc",
+    }
+
+
+def load_otc_warrants(path: str) -> List[dict]:
+    return [normalize_otc_warrant(r) for r in _read_csv(path)]
+
+
+def load_otc_stocks(path: str) -> List[dict]:
+    out: List[dict] = []
+    for r in _read_csv(path):
+        rec = normalize_otc_stock(r)
+        if rec:
+            out.append(rec)
+    return out
+
+
+def merge_listings(
+    listed_warrants: Iterable[dict],
+    otc_warrants: Iterable[dict],
+    listed_stocks: Iterable[dict],
+    otc_stocks: Iterable[dict],
+) -> Tuple[List[dict], List[dict]]:
+    """把上市 + 上櫃的 warrants 跟 stocks 合併，標的代號衝突時上市優先。
+
+    在 warrants 上加 ``market`` (``"listed"`` / ``"otc"``)。
+    在 stocks 同樣加 ``market`` 欄位（不會覆寫既有 ``market`` 欄位）。
+    """
+    merged_warrants: List[dict] = []
+    seen_codes = set()
+    for w in listed_warrants:
+        w = dict(w)
+        w["market"] = w.get("market") or "listed"
+        merged_warrants.append(w)
+        if w.get("code"):
+            seen_codes.add(w["code"])
+    for w in otc_warrants:
+        w = dict(w)
+        if w.get("code") in seen_codes:
+            continue  # 上市優先：略過 OTC 同名代號（極少見但 defensive）
+        w["market"] = "otc"
+        merged_warrants.append(w)
+        if w.get("code"):
+            seen_codes.add(w["code"])
+
+    merged_stocks: List[dict] = []
+    seen_stock_codes = set()
+    for s in listed_stocks:
+        s = dict(s)
+        s["market"] = s.get("market") or "listed"
+        merged_stocks.append(s)
+        if s.get("code"):
+            seen_stock_codes.add(s["code"])
+    for s in otc_stocks:
+        if s.get("code") in seen_stock_codes:
+            continue
+        merged_stocks.append(s)
+    return merged_warrants, merged_stocks
+
+
+__all__ = [
+    "load_warrants",
+    "load_normalized",
+    "normalize_warrant",
+    "load_otc_warrants",
+    "load_otc_stocks",
+    "normalize_otc_warrant",
+    "normalize_otc_stock",
+    "merge_listings",
+]
