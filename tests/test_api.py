@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest import mock  # noqa: F401  # 用於 unittest.mock.* 的向下相容
 
 # 確保可以 import app (從 backend 根目錄)
 HERE = os.path.dirname(os.path.abspath(__file__))
